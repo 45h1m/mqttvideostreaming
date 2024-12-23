@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Video Streamer and Viewer</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                background-color: #f0f0f0;
+            }
+            h1 {
+                color: #333;
+            }
+            .container {
+                width: 90%;
+                max-width: 800px;
+                margin: 20px auto;
+                background: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+            }
+            .section {
+                padding: 20px;
+                text-align: center;
+            }
+            video,
+            canvas {
+                max-width: 100%;
+                height: auto;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            button {
+                margin-top: 10px;
+                padding: 10px 20px;
+                font-size: 16px;
+                color: #fff;
+                background: #007bff;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            button:hover {
+                background: #0056b3;
+            }
+            @media (max-width: 600px) {
+                h1 {
+                    font-size: 20px;
+                }
+                button {
+                    font-size: 14px;
+                    padding: 8px 16px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div style="background: black; width: 100%; display: flex; align-items: center; justify-content: center; position: sticky; top: 0">
+            <a href="https://firebit.in">
+                <img style="width: 70px; background: black; padding: 0.5rem" src="https://firebit.in/firebit.svg" alt="logo" />
+            </a>
+            <p style="color: white; font-size: 0.7rem">
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="lucide lucide-flask-conical"
+                >
+                    <path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2" />
+                    <path d="M6.453 15h11.094" />
+                    <path d="M8.5 2h7" />
+                </svg>
+            </p>
+        </div>
+        <h1>Video Streamer and Viewer</h1>
+        <div class="container">
+            <div class="section" id="streamerSection">
+                <h2>Streamer</h2>
+                <video id="video" autoplay></video><br />
+                <button id="startStream">Start Streaming</button>
+                <button id="toggleStreamer">Hide Streamer View</button>
+            </div>
+            <div class="section">
+                <h2>Viewer</h2>
+                <canvas id="canvas"></canvas>
+            </div>
+        </div>
+
+        <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+        <script>
+            // MQTT configuration
+            const mqttBroker = "wss://broker.hivemq.com:8884/mqtt"; // Secure WebSocket
+            const topic = "video/frames"; // Topic for frames
+            const client = mqtt.connect(mqttBroker);
+
+            client.on("connect", () => {
+                client.subscribe(topic, (err) => {
+                    if (err) {
+                        console.error("Subscription error: ", err);
+                    } else {
+                    }
+                });
+            });
+
+            client.on("error", (err) => {
+                console.error("MQTT Connection Error: ", err);
+            });
+
+            // Viewer functionality
+            const canvas = document.getElementById("canvas");
+            const ctx = canvas.getContext("2d");
+            canvas.width = 320; // Resolution width
+            canvas.height = 240; // Resolution height
+
+            client.on("message", (receivedTopic, message) => {
+                if (receivedTopic === topic) {
+                    const blob = new Blob([message], { type: "image/jpeg" });
+                    const img = new Image();
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    };
+                    img.src = URL.createObjectURL(blob);
+                }
+            });
+
+            // Streamer functionality
+            const video = document.getElementById("video");
+            const startStream = document.getElementById("startStream");
+            const toggleStreamer = document.getElementById("toggleStreamer");
+            const streamerSection = document.getElementById("streamerSection");
+            const canvasStream = document.createElement("canvas");
+            const ctxStream = canvasStream.getContext("2d");
+
+            navigator.mediaDevices
+                .getUserMedia({ video: true })
+                .then((stream) => {
+                    video.srcObject = stream;
+                })
+                .catch((err) => {
+                    console.error("Error accessing user camera: ", err);
+                });
+
+            startStream.addEventListener("click", () => {
+                setInterval(() => {
+                    canvasStream.width = 320;
+                    canvasStream.height = 240;
+                    ctxStream.drawImage(video, 0, 0, canvasStream.width, canvasStream.height);
+
+                    canvasStream.toBlob(
+                        (blob) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const binaryData = new Uint8Array(reader.result);
+                                if (client.connected) {
+                                    client.publish(topic, binaryData);
+                                }
+                            };
+                            reader.readAsArrayBuffer(blob);
+                        },
+                        "image/jpeg",
+                        0.5
+                    );
+                }, 100); // Send frame every 100ms
+            });
+
+            toggleStreamer.addEventListener("click", () => {
+                if (streamerSection.style.display === "none") {
+                    streamerSection.style.display = "block";
+                    toggleStreamer.textContent = "Hide Streamer View";
+                } else {
+                    streamerSection.style.display = "none";
+                    toggleStreamer.textContent = "Show Streamer View";
+                }
+            });
+        </script>
+    </body>
+</html>
